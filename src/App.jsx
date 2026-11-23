@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { AppFooter } from './components/AppFooter.jsx';
 import { AppHeader } from './components/AppHeader.jsx';
-import { OptionsPanel } from './components/OptionsPanel.jsx';
 import { ResultPane } from './components/ResultPane.jsx';
 import { SourcePane } from './components/SourcePane.jsx';
+import { FILE_NAMES } from './config.js';
 import { useConverter } from './hooks/useConverter.js';
 import { useCopy } from './hooks/useCopy.js';
 import { DIRECTION } from './lib/daxToJson.js';
@@ -16,7 +16,7 @@ const COPY = {
     placeholder:
       'Paste a DAX query here.\n\nCopy it straight out of Performance Analyzer or DAX Studio — tabs, blank lines and quotes are all handled.',
     emptyMessage: 'Paste a query on the left and the JSON appears here.',
-    downloadName: 'query.json',
+    downloadName: FILE_NAMES.json,
     mimeType: 'application/json',
   },
   [DIRECTION.jsonToDax]: {
@@ -24,18 +24,16 @@ const COPY = {
     resultTitle: 'DAX query',
     placeholder: 'Paste a JSON payload here, for example {"query": "EVALUATE ..."}',
     emptyMessage: 'Paste a payload on the left and the query appears here.',
-    downloadName: 'query.dax',
+    downloadName: FILE_NAMES.dax,
     mimeType: 'text/plain',
   },
 };
 
 export default function App() {
-  const { direction, setDirection, source, setSource, options, setOption, result, loadExample, clear } =
-    useConverter();
+  const { direction, setDirection, source, setSource, result, loadExample, clear } = useConverter();
   const { status: copyStatus, copy } = useCopy();
 
   const labels = COPY[direction];
-  const decoding = direction === DIRECTION.jsonToDax;
 
   // Ctrl+Enter (Cmd+Enter on a Mac) copies the result from anywhere on the page.
   useEffect(() => {
@@ -53,8 +51,6 @@ export default function App() {
   return (
     <div className="app">
       <AppHeader direction={direction} onDirectionChange={setDirection} />
-
-      <OptionsPanel options={options} onChange={setOption} disabled={decoding} />
 
       <main className="panes">
         <SourcePane
