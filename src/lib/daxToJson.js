@@ -23,13 +23,27 @@ export const WRAP = {
   executeQueries: 'executeQueries',
 };
 
+/**
+ * Row-limit rewriting is off here and switched on in src/config.js, so the
+ * library never changes a query unless it is asked to.
+ */
+export const DEFAULT_ROW_LIMIT = {
+  apply: false,
+  limit: 100000,
+  matches: [],
+};
+
 export const DEFAULT_OPTIONS = {
   key: DEFAULT_KEY,
   indent: 2,
   wrap: WRAP.simple,
   ensureAscii: false,
   keepCrlf: false,
+  rowLimit: DEFAULT_ROW_LIMIT,
 };
+
+/** TOPN, optional space, open bracket, optional whitespace, then the count. */
+const TOPN_COUNT = /(\bTOPN\s*\(\s*)(\d+)/gi;
 
 /**
  * Tidy a DAX string before encoding.
@@ -47,6 +61,49 @@ export function cleanDax(text, { keepCrlf = false } = {}) {
   if (out.charCodeAt(0) === 0xfeff) out = out.slice(1);
   if (!keepCrlf) out = out.replace(/\r\n?/g, '\n');
   return out.replace(/^[\r\n]+/, '').replace(/\s+$/, '');
+}
+
+/**
+ * Raise the row cap that Performance Analyzer bakes into the query.
+ *
+ * A visual only ever renders a few hundred rows, so the exported query arrives
+ * wrapped in TOPN(501, ...). Run anywhere else it quietly truncates, which is
+ * why the number is rewritten on the way into the JSON.
+ *
+ * Only the first argument of TOPN is touched, and only when it is a literal
+ * number listed in `matches`. A TOPN written deliberately inside a measure,
+ * say TOPN(5, ...) for a top-five list, is left alone.
+ *
+ * Running this twice changes nothing the second time.
+ *
+ * @param {string} dax
+ * @param {{ apply?: boolean, limit?: number, matches?: number[] }} [rowLimit]
+ * @returns {{ text: string, count: number, from: number[] }}
+ *          count is how many numbers were rewritten, from lists what they were
+ */
+export function applyRowLimit(dax, rowLimit = DEFAULT_ROW_LIMIT) {
+  const { apply, limit, matches } = { ...DEFAULT_ROW_LIMIT, ...rowLimit };
+
+  if (!apply || !Number.isFinite(limit) || limit <= 0) {
+    return { text: dax, count: 0, from: [] };
+  }
+
+  const seen = new Set();
+  let count = 0;
+
+  const text = dax.replace(TOPN_COUNT, (whole, head, digits) => {
+    const current = Number(digits);
+
+    // An empty `matches` list means "whatever number is there".
+    if (matches.length > 0 && !matches.includes(current)) return whole;
+    if (current === limit) return whole;
+
+    seen.add(current);
+    count += 1;
+    return `${head}${limit}`;
+  });
+
+  return { text, count, from: [...seen] };
 }
 
 /**
@@ -91,9 +148,15 @@ function escapeNonAscii(json) {
  * @returns {string}
  */
 export function daxToJson(dax, options = {}) {
-  const { key, indent, wrap, ensureAscii, keepCrlf } = { ...DEFAULT_OPTIONS, ...options };
-  const payload = buildPayload(cleanDax(dax, { keepCrlf }), { key, wrap });
-  const json = JSON.stringify(payload, null, indent || 0);
+  const { key, indent, wrap, ensureAscii, keepCrlf, rowLimit } = {
+    ...DEFAULT_OPTIONS,
+    ...options,
+  };
+
+  const cleaned = cleanDax(dax, { keepCrlf });
+  const { text } = applyRowLimit(cleaned, rowLimit);
+  const json = JSON.stringify(buildPayload(text, { key, wrap }), null, indent || 0);
+
   return ensureAscii ? escapeNonAscii(json) : json;
 }
 
@@ -124,7 +187,7 @@ export function jsonToDax(payload, { key = DEFAULT_KEY } = {}) {
   }
 
   throw new Error(
-    `No query found under the key "${name}". Change the key name in the options to match your payload.`,
+    `No query found under the key "${name}". Change the key name in src/config.js to match your payload.`,
   );
 }
 
@@ -148,11 +211,21 @@ function readableError(error) {
  *
  * @param {string} text
  * @param {Partial<typeof DEFAULT_OPTIONS> & { direction?: string }} [options]
- * @returns {{ ok: boolean, output: string, empty: boolean, verified: boolean, error: string }}
+ * @returns {{
+ *   ok: boolean, output: string, empty: boolean, verified: boolean, error: string,
+ *   rowLimit: { count: number, from: number[], to: number|null }
+ * }}
  */
 export function convert(text, options = {}) {
   const { direction = DIRECTION.daxToJson, ...rest } = options;
-  const base = { ok: true, output: '', empty: false, verified: false, error: '' };
+  const base = {
+    ok: true,
+    output: '',
+    empty: false,
+    verified: false,
+    error: '',
+    rowLimit: { count: 0, from: [], to: null },
+  };
 
   if (!text || !text.trim()) return { ...base, empty: true };
 
@@ -161,18 +234,30 @@ export function convert(text, options = {}) {
       return { ...base, output: jsonToDax(text, rest) };
     }
 
-    const output = daxToJson(text, rest);
+    const cleaned = cleanDax(text, rest);
+    const limited = applyRowLimit(cleaned, rest.rowLimit);
+    const output = daxToJson(limited.text, rest);
 
-    // Decode what was just produced and compare: a mismatch means the envelope
-    // would not survive the round trip, which is worth knowing before copying.
+    // Decode what was just produced and compare it with the query that went in,
+    // row limit included. A mismatch means the envelope would not survive the
+    // round trip, which is worth knowing before anyone copies it.
     let verified = false;
     try {
-      verified = jsonToDax(output, rest) === cleanDax(text, rest);
+      verified = jsonToDax(output, rest) === limited.text;
     } catch {
       verified = false;
     }
 
-    return { ...base, output, verified };
+    return {
+      ...base,
+      output,
+      verified,
+      rowLimit: {
+        count: limited.count,
+        from: limited.from,
+        to: limited.count ? { ...DEFAULT_ROW_LIMIT, ...rest.rowLimit }.limit : null,
+      },
+    };
   } catch (error) {
     return { ...base, ok: false, error: readableError(error) };
   }

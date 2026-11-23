@@ -9,12 +9,29 @@ const COPY_LABEL = {
 };
 
 /**
+ * One line under the result saying what was checked and what was changed.
+ * A rewritten row limit is reported first: it is the one thing in the output
+ * that differs from what was pasted in.
+ */
+function resultNote({ rowLimit, verified }) {
+  if (rowLimit?.count > 0) {
+    const was = rowLimit.from.join(' and ');
+    const now = rowLimit.to.toLocaleString();
+    const checked = verified ? ', and decodes back cleanly' : '';
+    return `Row limit raised from ${was} to ${now}${checked}`;
+  }
+
+  return verified ? 'Decodes back to the original query' : '';
+}
+
+/**
  * The read-only pane holding the converted text, plus the two things people
  * came here to do: copy it, or save it.
  */
 export function ResultPane({ title, result, copyStatus, onCopy, emptyMessage, downloadName, mimeType }) {
-  const { ok, output, verified, error } = result;
+  const { ok, output, error } = result;
   const hasOutput = ok && Boolean(output);
+  const note = hasOutput ? resultNote(result) : '';
 
   return (
     <section className="pane">
@@ -80,10 +97,10 @@ export function ResultPane({ title, result, copyStatus, onCopy, emptyMessage, do
 
       <div className="pane__footer">
         <StatsRow text={output} />
-        {hasOutput && verified && (
+        {note && (
           <span className="verify">
             <TickIcon className="verify__icon" />
-            Decodes back to the original query
+            {note}
           </span>
         )}
       </div>
