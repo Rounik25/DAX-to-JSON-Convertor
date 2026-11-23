@@ -1,0 +1,13 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DAX to JSON converter">
+  <style>
+    :root {
+      --ds-color-company-red: #CC0000;
+      --ds-color-white:       #FFFFFF;
+      --ds-font-sans:         Arial, Helvetica, sans-serif;
+    }
+    .plate { fill: var(--ds-color-company-red); }
+    .mark  { fill: var(--ds-color-white); font: 700 19px var(--ds-font-sans); }
+  </style>
+  <rect class="plate" width="32" height="32" />
+  <text class="mark" x="16" y="23" text-anchor="middle">{ }</text>
+</svg>
