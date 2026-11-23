@@ -78,3 +78,9 @@ export const ROW_LIMIT = {
    */
   matches: [501, 1001, 3001, 30001],
 };
+
+/** Names the Download button gives the saved file. */
+export const FILE_NAMES = {
+  json: 'query.json',
+  dax: 'query.dax',
+};
